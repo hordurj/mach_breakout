@@ -20,12 +20,12 @@ pub fn build(b: *std.Build) !void {
     const mach_dep = b.dependency("mach", .{
         .target = target,
         .optimize = optimize,
-    }); 
+    });
 
     const zigimg_dep = b.dependency("zigimg", .{
         .target = target,
         .optimize = optimize,
-    }); 
+    });
 
     const exe = b.addExecutable(.{
         .name = "breakout",
@@ -33,20 +33,14 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    const mach_mod = mach_dep.module("mach");
-    const build_options = b.addOptions();
-    build_options.addOption(bool, "want_mach", true);
-    build_options.addOption(bool, "want_core", true);
-    build_options.addOption(bool, "want_sysaudio", true);
-    build_options.addOption(Platform, "core_platform", .glfw);
-
-    mach_mod.addImport("build-options", build_options.createModule());
-    exe.root_module.addImport("build-options", build_options.createModule());
-    exe.root_module.addImport("mach", mach_mod);
-    exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
-
-    mach.link(b, exe);
     b.installArtifact(exe);
+
+    // Add Mach dependency
+    exe.root_module.addImport("mach", mach_dep.module("mach"));
+    @import("mach").link(mach_dep.builder, exe);
+
+    // Add zigimg dependency
+    exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
 
     const run_cmd = b.addRunArtifact(exe);
     const run_step = b.step("run", "Run the app");
@@ -66,13 +60,13 @@ pub fn build(b: *std.Build) !void {
     const sheet_run_step = b.step("run-sheet", "Run sheet");
     sheet_run_step.dependOn(&sheet_run_cmd.step);
 
-     //Build step to generate docs:
+    //Build step to generate docs:
     const install_docs = b.addInstallDirectory(.{
         .source_dir = exe.getEmittedDocs(),
         .install_dir = .prefix,
         .install_subdir = "docs",
-    });     
-        
+    });
+
     const docs_step = b.step("docs", "Generate docs");
-    docs_step.dependOn(&install_docs.step);    
+    docs_step.dependOn(&install_docs.step);
 }
