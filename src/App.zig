@@ -1,4 +1,3 @@
-// TODO(important): review all code in this file in-depth
 const std = @import("std");
 const mach = @import("mach");
 const zigimg = @import("zigimg");
@@ -8,8 +7,6 @@ const gfx = mach.gfx;
 const math = mach.math;
 const sysaudio = mach.sysaudio;
 
-//const SpritePipeline = @import("SpritePipeline.zig");
-//const Sprite = @import("Sprite.zig");
 const SpritePipeline = gfx.SpritePipeline;
 const Sprite = gfx.Sprite;
 
@@ -51,7 +48,7 @@ background_pipeline: mach.EntityID,
 text_pipeline: mach.EntityID,
 frame_encoder: *gpu.CommandEncoder = undefined,
 frame_render_pass: *gpu.RenderPassEncoder = undefined,
-spritesheet: SpriteSheet = undefined,  // Update to and asset manager
+spritesheet: SpriteSheet = undefined,
 
 score: u32,
 score_text: mach.EntityID,
@@ -70,16 +67,11 @@ level: u32 = 1,
 lives_left: u32 = 3,
 lives_balls: [2] mach.EntityID,
 
-paused: bool = false,
-
 width: f32 = 960.0,
 height: f32 = 540.0,
 
 impact_sfx: mach.Audio.Opus = undefined,
 
-
-// Define the globally unique name of our module. You can use any name here, but keep in mind no
-// two modules in the program can have the same name.
 pub const name = .app;
 pub const Mod = mach.Mod(@This());
 
@@ -127,10 +119,14 @@ pub const systems = .{
 
 pub const components = .{
     .is_bgm = .{ .type = void },
+
+    // Physics
     .is_hittable = .{ .type = void},
-    .is_active = .{ .type = void},
-    .is_movable = .{ .type = void},
     .velocity = .{ .type = Vec2},
+    .friction = .{ .type = f32},
+    .invmass = .{ .type = f32},
+
+
     .wall = .{ .type = Vec4 },
     // more components
     // physics
@@ -147,9 +143,16 @@ pub const components = .{
     .contact_source = .{ .type = mach.EntityID },
     .contact_target = .{ .type = mach.EntityID },
     // .contact_pos ?
+    // .contact_normal ?
 
     .parent = .{ .type = mach.EntityID },
     .local_transform = .{ .type = Mat4x4 },
+
+    .health = .{ .type = u32 },
+    .reward = .{ .type = u32 },
+    .score = .{ .type = u32 },
+    .lives = .{ .type = u8 },
+
 };
 
 fn buildLevel(
@@ -162,8 +165,6 @@ fn buildLevel(
     // Get window height and width
     const width: f32 = game.state().width; 
     const height: f32 = game.state().height;
-
-    std.debug.print("width/height: {} {}\n", .{width, height} );
 
     const board_height_fraction: f32 = 0.6; 
 
@@ -178,10 +179,13 @@ fn buildLevel(
     const green_brick_sprite = spritesheet.get("core_1_Layer 0").?;
     const red_brick_sprite = spritesheet.get("core_2_Layer 0").?;
 
-    var brick_sprite: [3]sprs.Sprite = undefined;
-    brick_sprite[0] = blue_brick_sprite;
-    brick_sprite[1] = green_brick_sprite;
-    brick_sprite[2] = red_brick_sprite;
+    const brick_sprite = [3]sprs.Sprite{
+        blue_brick_sprite,
+        green_brick_sprite,
+        red_brick_sprite
+    };
+
+    const brick_reward = [3]u32{ 100, 50, 25 };
 
     const w: f32 = @floatFromInt(brick_sprite[0].source[2]);
     const h: f32 = @floatFromInt(brick_sprite[0].source[3]);
@@ -216,6 +220,7 @@ fn buildLevel(
             try sprite.set(brick, .uv_transform, Mat3x3.translate(vec2(x, y)));
             try sprite.set(brick, .pipeline, pipeline);
             try game.set(brick, .is_hittable, {});
+            try game.set(brick, .reward, brick_reward[k]);
             number_of_bricks += 1;
         }
     }
@@ -293,11 +298,9 @@ fn afterInit(
 
     // Background
     const background_pipeline = try entities.new();
-    std.debug.print("Background pipeline {}\n", .{background_pipeline});
     try sprite_pipeline.set(background_pipeline, .texture, try utils.loadTexture("assets/background.png",core, allocator));
 
     const pipeline = try entities.new();
-    std.debug.print("Brick pipeline {}\n", .{pipeline});
     try sprite_pipeline.set(pipeline, .texture, try utils.loadTexture("assets/gameobjects.png", core, allocator));
 
     const player = try entities.new();
@@ -373,7 +376,6 @@ fn afterInit(
     try sprite.set(ball, .size, vec2(w, h));
     try sprite.set(ball, .uv_transform, Mat3x3.translate(vec2(x, y)));
     try sprite.set(ball, .pipeline, pipeline);
-    try game.set(ball, .is_movable, {});
     try game.set(ball, .velocity, vec2(0.0, 0.0));
 
     try game.set(ball, .parent, player);
@@ -478,7 +480,7 @@ fn tick_inputs(game: *Mod, core: *mach.Core.Mod) !void {
                                     try game.set(game.state().ball, .velocity, vec2(game.state().ball_speed, game.state().ball_speed));
                                 }
                             },
-                            .p => game.state().paused = !game.state().paused,
+                            .p => game.state().game_state = .paused,
                             .q => core.schedule(.exit),
                             else => {},
                         }
@@ -489,7 +491,12 @@ fn tick_inputs(game: *Mod, core: *mach.Core.Mod) !void {
                     .ready => {
                         game.state().game_state = .playing;
                     },
-                    .paused => {} // not implemented 
+                    .paused => {
+                        switch (ev.key) {
+                            .p => game.state().game_state = .playing,
+                            else => {},
+                        }
+                    }
                 }
             },
             .key_release => |ev| {
@@ -709,7 +716,7 @@ fn tick(
     game.state().time += delta_time;
 
     try tick_inputs(game, core);
-    if (!game.state().paused) {
+    if (game.state().game_state == .playing) {
         for (0..5) |_| {
             try tick_physics(delta_time / 5.0, game, entities, sprite);
         }
@@ -769,14 +776,18 @@ fn tick(
             } else if (source == game.state().ball) {
                 const is_hittable = game.get(target, .is_hittable);
                 if (is_hittable) |_| {
-                    // TODO: can be handled by game logic by going through collision records.
-                    try entities.remove(target);
-                    game.state().score += 50;
+                    const reward = game.get(target, .reward).?;
+                    game.state().score += reward;
                     game.state().bricks_left -= 1;
+                    try entities.remove(target);
+
                     if (game.state().bricks_left == 0) {
                         // new level
                         game.state().paddle_speed += 50;
                         game.state().ball_speed += 50;
+
+                        // schedule reset level
+
                         try buildLevel(&game.state().spritesheet, game.state().pipeline, entities, sprite, game);
                         try game.set(source, .parent, game.state().player);
                         try game.set(source, .velocity, vec2(0.0, 0.0));

@@ -69,9 +69,7 @@ pub fn loadPixiSpriteAtlas(allocator: std.mem.Allocator, filename: [] const u8, 
     defer atlas.deinit();
 
     for (atlas.value.sprites) |sprite| {
-        std.debug.print("Add {s} \n", .{sprite.name});
         try sheet_map.put(sprite);
-        std.debug.print("Contain {s} {} \n", .{sprite.name, sheet_map.sprites.contains(sprite.name)});
     }
 }
 

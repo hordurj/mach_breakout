@@ -20,8 +20,6 @@ pub const modules = .{
 
 // TODO(important): use standard entrypoint instead
 pub fn main() !void {
-    const a = .hello;
-    std.debug.print("{}", .{a});
     // Initialize mach.Core
     try mach.core.initModule();
 
