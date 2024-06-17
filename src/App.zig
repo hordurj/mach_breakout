@@ -36,10 +36,8 @@ timer: mach.Timer,
 player: mach.EntityID,
 ball: mach.EntityID = undefined,
 floor: mach.EntityID = undefined,
-direction: Vec2 = vec2(0, 0),
 fps_timer: mach.Timer,
 frame_count: usize,
-sprites: usize,
 rand: std.rand.DefaultPrng,
 time: f32,
 allocator: std.mem.Allocator,
@@ -58,8 +56,8 @@ high_score_text: mach.EntityID,
 
 info_text: mach.EntityID,
 
-paddle_speed: f32 = 200,
-ball_speed: f32 = 100,
+paddle_speed: f32 = 400,
+ball_speed: f32 = 200,
 
 bricks_left: u32 = 0,
 level: u32 = 1,
@@ -121,24 +119,25 @@ pub const components = .{
     .is_bgm = .{ .type = void },
 
     // Physics
-    .is_hittable = .{ .type = void},
+    .is_hittable = .{ .type = void}, // is breakable?
     .velocity = .{ .type = Vec2},
     .friction = .{ .type = f32},
     .invmass = .{ .type = f32},
-
 
     .wall = .{ .type = Vec4 },
     // more components
     // physics
     //      invmass
     //      friction
-    //      restituion
+    //      restitution
     //      gravity
     //      shape
     //          rectangle       - x, y, w, h
     //          plane / wall    - x0, y0, nx, ny
     //          circle          - x, y, r
     //
+    .rect = .{ .type = void },  // has pos, size
+    .cirlce = .{ .type = void },  // has pos, size
     .is_contact = .{ .type = void },
     .contact_source = .{ .type = mach.EntityID },
     .contact_target = .{ .type = mach.EntityID },
@@ -152,7 +151,6 @@ pub const components = .{
     .reward = .{ .type = u32 },
     .score = .{ .type = u32 },
     .lives = .{ .type = u8 },
-
 };
 
 fn buildLevel(
@@ -212,14 +210,18 @@ fn buildLevel(
             try sprite.set(brick, .transform, Mat4x4.translate(
                 vec3(x_pos, y_pos, 0.0)));
 
-            const k = (3 * i) / rows;
+            const k = (brick_sprite.len * i) / rows;
             const x: f32 = @floatFromInt(brick_sprite[k].source[0]);
             const y: f32 = @floatFromInt(brick_sprite[k].source[1]);
 
             try sprite.set(brick, .size, vec2(w, h));
             try sprite.set(brick, .uv_transform, Mat3x3.translate(vec2(x, y)));
             try sprite.set(brick, .pipeline, pipeline);
+            try game.set(brick, .velocity, vec2(0.0, 0.0));
+            try game.set(brick, .friction, 0.0);
+            try game.set(brick, .invmass, 0.0);
             try game.set(brick, .is_hittable, {});
+            try game.set(brick, .rect, {});
             try game.set(brick, .reward, brick_reward[k]);
             number_of_bricks += 1;
         }
@@ -328,7 +330,6 @@ fn afterInit(
         .floor = bottom_wall,
         .fps_timer = try mach.Timer.start(),
         .frame_count = 0,
-        .sprites = 0,
         .rand = std.rand.DefaultPrng.init(1337),
         .time = 0,
         .allocator = allocator,
@@ -360,6 +361,9 @@ fn afterInit(
 
         try sprite.set(player, .transform, Mat4x4.translate(vec3(0.0, -height/2.0*0.9, 0.0)));
         try game.set(player, .velocity, vec2(0.0, 0.0));
+        try game.set(player, .friction, 0.5);
+        try game.set(player, .invmass, 0.0);
+        try game.set(player, .rect, {});
         try sprite.set(player, .size, vec2(w, h));
         try sprite.set(player, .uv_transform, Mat3x3.translate(vec2(x, y)));
         try sprite.set(player, .pipeline, pipeline);
@@ -377,6 +381,8 @@ fn afterInit(
     try sprite.set(ball, .uv_transform, Mat3x3.translate(vec2(x, y)));
     try sprite.set(ball, .pipeline, pipeline);
     try game.set(ball, .velocity, vec2(0.0, 0.0));
+    try game.set(ball, .friction, 0.0);
+    try game.set(ball, .invmass, 1.0);
 
     try game.set(ball, .parent, player);
     try game.set(ball, .local_transform, Mat4x4.translate(vec3(32.0, 12, 0.0)));
@@ -384,14 +390,22 @@ fn afterInit(
     // Walls
     const top_wall = try entities.new();
     try game.set(top_wall, .wall, vec4(0.0, height / 2, 0.0, -1.0));
+    try game.set(top_wall, .friction, 0.0);
+    try game.set(top_wall, .invmass, 0.0);
 
     try game.set(bottom_wall, .wall, vec4(0.0, -height / 2, 0.0, 1.0));
+    try game.set(bottom_wall, .friction, 0.0);
+    try game.set(bottom_wall, .invmass, 0.0);
 
     const left_wall = try entities.new();
     try game.set(left_wall, .wall, vec4(-width / 2.0, 0.0, 1.0, 0.0));
+    try game.set(left_wall, .friction, 0.0);
+    try game.set(left_wall, .invmass, 0.0);
 
     const right_wall = try entities.new();
     try game.set(right_wall, .wall, vec4(width / 2.0, 0.0, -1.0, 0.0));
+    try game.set(right_wall, .friction, 0.0);
+    try game.set(right_wall, .invmass, 0.0);
 
     const background = try entities.new();
     try sprite.set(background, .transform, Mat4x4.translate(
@@ -501,8 +515,8 @@ fn tick_inputs(game: *Mod, core: *mach.Core.Mod) !void {
             },
             .key_release => |ev| {
                 switch (ev.key) {
-                    .left => velocity.v[0] = 0,
-                    .right => velocity.v[0] = 0,
+                    .left => if (velocity.v[0] < 0.0) { velocity.v[0] = 0.0; },
+                    .right => if (velocity.v[0] > 0.0) { velocity.v[0] = 0.0; },
                     else => {},
                 }
             },
@@ -514,39 +528,27 @@ fn tick_inputs(game: *Mod, core: *mach.Core.Mod) !void {
     try game.set(game.state().player, .velocity, velocity);
 }
 
-fn tick_physics(delta_time: f32, game: *Mod, entities: *mach.Entities.Mod, sprite: *Sprite.Mod) !void {
+fn tick_physics(delta_time: f32, game: *Mod, entities: *mach.Entities.Mod) !void {
     // Physics - move ball
     var q = try entities.query(.{
         .ids = mach.Entities.Mod.read(.id),
         .size = gfx.Sprite.Mod.read(.size),
         .transform = gfx.Sprite.Mod.write(.transform),
-        .velocity = Mod.write(.velocity)
+        .velocity = Mod.write(.velocity),
+        .invmass = Mod.read(.invmass),
     });
     while (q.next()) |v| {
-        for (v.ids, v.size, v.transform, v.velocity) |obj_id, size, *transform, *velocity| {
+        for (v.ids, v.size, v.transform, v.velocity, v.invmass) |obj_id, size, *transform, *velocity, invmass| {
+            if (velocity.len() == 0.0) {
+                continue;
+            }
+
             const half_width = size.x() / 2.0;
             const translation = transform.*.translation();
             const x0 = translation.x() + half_width;
             const y0 = translation.y() + half_width;
             var x = x0 + velocity.x()*delta_time;
             var y = y0 + velocity.y()*delta_time;
-
-            // Check paddle
-            if (obj_id != game.state().player) {
-                var player_transform = sprite.get(game.state().player, .transform).?;
-                const player_size = sprite.get(game.state().player, .size).?;
-                var player_pos = player_transform.translation();
-                const paddle_width = player_size.v[0];
-                const paddle_height = player_size.v[1];
-                if (    (x - player_pos.x() > -half_width) 
-                    and (x - player_pos.x() < paddle_width + half_width)
-                    and (y - player_pos.y() < half_width + paddle_height)) {
-
-                    // Skip testing bottom side
-                    velocity.* = vec2(velocity.x(), -velocity.y());
-                    y = player_pos.y() + half_width + paddle_height;
-                }
-            }
 
             // Check wall boundaries
             var w_collision = try entities.query(.{
@@ -562,7 +564,12 @@ fn tick_physics(delta_time: f32, game: *Mod, entities: *mach.Entities.Mod, sprit
                     const d = p.dot(&n);
                     if (d < half_width) {
                         const vn = n.mulScalar(2.0 * velocity.dot(&n));
-                        velocity.* = velocity.sub(&vn);
+                        if (invmass == 0.0) { 
+                            // Too heavy to bounce back
+                            velocity.* = vec2(0.0, 0.0);
+                        } else {
+                            velocity.* = velocity.sub(&vn);
+                        }
                         x += n.x() * (half_width - d);
                         y += n.y() * (half_width - d);
 
@@ -574,17 +581,20 @@ fn tick_physics(delta_time: f32, game: *Mod, entities: *mach.Entities.Mod, sprit
                 }
             }
 
-            // Check bricks
+            // Check rectangles
             var q_collision = try entities.query(.{
                 .ids = mach.Entities.Mod.read(.id),
                 .size = gfx.Sprite.Mod.read(.size),
                 .transform = gfx.Sprite.Mod.read(.transform),
-                .is_hittable = Mod.read(.is_hittable)
+                .rect = Mod.read(.rect),
+                .velocity = Mod.read(.velocity),
+                .friction = Mod.read(.friction),
             });
             while (q_collision.next()) |c| {
-                for (c.ids, c.size, c.transform, c.is_hittable) |col_id, col_size, col_transform, is_hittable| {
-                    _ = is_hittable;
-    
+                for (c.ids, c.size, c.transform, c.velocity, c.friction) |col_id, col_size, col_transform, col_velocity, col_friction| {
+                    if (obj_id == col_id) {
+                        continue; 
+                    }
                     const col_location = col_transform.translation();
                     const dx = x - col_location.x();
                     const dy = y - col_location.y();
@@ -595,17 +605,27 @@ fn tick_physics(delta_time: f32, game: *Mod, entities: *mach.Entities.Mod, sprit
                             or (dy > col_size.y() + half_width)) {
                         continue ;
                     }
+
+                    var collided = false;
                     if ((dx < 0 and velocity.x() > 0) or (dx > col_size.x() and velocity.x() < 0)) {
                         velocity.* = vec2(-velocity.x(), velocity.y());
+                        collided = true;
                     }
                     if ((dy < 0 and velocity.y() > 0) or (dy > col_size.y() and velocity.y() < 0)) {
                         velocity.* = vec2(velocity.x(), -velocity.y());
+                        collided = true;
                     }
 
-                    const collision = try entities.new();
-                    try game.set(collision, .is_contact, {});
-                    try game.set(collision, .contact_source, obj_id);
-                    try game.set(collision, .contact_target, col_id);
+                    if (collided) {
+                        const l = velocity.len();
+                        velocity.* = velocity.add(&col_velocity.mulScalar(col_friction));
+                        velocity.* = velocity.mulScalar(l / velocity.len()); // Only change direction
+
+                        const collision = try entities.new();
+                        try game.set(collision, .is_contact, {});
+                        try game.set(collision, .contact_source, obj_id);
+                        try game.set(collision, .contact_target, col_id);
+                    }
                 }
             }
             transform.* = Mat4x4.translate(vec3(x - half_width, y - half_width, 0.0));
@@ -718,7 +738,7 @@ fn tick(
     try tick_inputs(game, core);
     if (game.state().game_state == .playing) {
         for (0..5) |_| {
-            try tick_physics(delta_time / 5.0, game, entities, sprite);
+            try tick_physics(delta_time / 5.0, game, entities);
         }
     }
 
