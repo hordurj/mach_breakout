@@ -32,15 +32,28 @@ const GameState = enum {
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
+// Game state and visuals
 game_state: GameState = .ready,
-timer: mach.Timer,
 player: mach.EntityID,
 ball: mach.EntityID = undefined,
 floor: mach.EntityID = undefined,
-fps_timer: mach.Timer,
-frame_count: usize,
-rand: std.rand.DefaultPrng,
-time: f32,
+score: u32,
+score_text: mach.EntityID,
+high_score: u32,
+high_score_text: mach.EntityID,
+info_text: mach.EntityID,
+bricks_left: u32 = 0,
+level: u32 = 1,
+lives_left: u32 = 3,
+lives_balls: [2] mach.EntityID,
+
+// Game config
+paddle_speed: f32 = 400,
+ball_speed: f32 = 200,
+width: f32 = 960.0,         // Width of render area - will be scaled to window
+height: f32 = 540.0,        // Height of render area - will be scaled to window
+
+// Resources
 allocator: std.mem.Allocator,
 pipeline: mach.EntityID,
 background_pipeline: mach.EntityID,
@@ -48,28 +61,14 @@ text_pipeline: mach.EntityID,
 frame_encoder: *gpu.CommandEncoder = undefined,
 frame_render_pass: *gpu.RenderPassEncoder = undefined,
 spritesheet: SpriteSheet = undefined,
-
-score: u32,
-score_text: mach.EntityID,
-
-high_score: u32,
-high_score_text: mach.EntityID,
-
-info_text: mach.EntityID,
-
-paddle_speed: f32 = 400,
-ball_speed: f32 = 200,
-
-bricks_left: u32 = 0,
-level: u32 = 1,
-
-lives_left: u32 = 3,
-lives_balls: [2] mach.EntityID,
-
-width: f32 = 960.0,         // Width of render area - will be scaled to window
-height: f32 = 540.0,        // Height of render area - will be scaled to window
-
 impact_sfx: mach.Audio.Opus = undefined,
+
+// Diagnostics
+timer: mach.Timer,
+fps_timer: mach.Timer,
+frame_count: usize,
+rand: std.rand.DefaultPrng,
+time: f32,
 
 pub const name = .app;
 pub const Mod = mach.Mod(@This());
