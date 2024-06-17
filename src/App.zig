@@ -220,7 +220,7 @@ fn init(
     audio: *mach.Audio.Mod,    
     game: *Mod,
 ) !void {
-    try core.set(core.state().main_window, .fullscreen, false);
+    try core.set(core.state().main_window, .fullscreen, true);
 
     core.schedule(.init);
     sprite_pipeline.schedule(.init);    
@@ -332,7 +332,7 @@ fn afterInit(
 
         try sprite.set(player, .transform, Mat4x4.translate(vec3(0.0, -height/2.0*0.9, 0.0)));
         try physics.set(player, .velocity, vec2(0.0, 0.0));
-        try physics.set(player, .friction, 0.5);
+        try physics.set(player, .friction, 0.25);
         try physics.set(player, .invmass, 0.0);
         try physics.set(player, .rect, {});
         try sprite.set(player, .size, vec2(w, h));
@@ -587,8 +587,6 @@ fn tick_game_logic(game: *Mod,
     text: *gfx.Text.Mod,
     audio: *mach.Audio.Mod,
 ) !void {
-    const prev_state = game.state().game_state;
-
     const width: f32 = game.state().width;
     const height: f32 = game.state().height;
 
@@ -657,10 +655,10 @@ fn tick_game_logic(game: *Mod,
                         game.state().ball_speed += 50;
 
                         // schedule reset level
-
                         try buildLevel(&game.state().spritesheet, game.state().pipeline, entities, sprite, game, physics);
                         try game.set(source, .parent, game.state().player);
                         try physics.set(source, .velocity, vec2(0.0, 0.0));
+
                         // Move ball so it does not hit bricks in new level
                         try sprite.set(source, .transform, Mat4x4.translate(vec3(0.0, -height/2.0+50.0, 0.0)));
                     }
@@ -676,14 +674,22 @@ fn tick_game_logic(game: *Mod,
         }
     }
 
-    if (prev_state == .game_over and game.state().game_state == .ready) {
-        try buildLevel(&game.state().spritesheet, game.state().pipeline, entities, sprite, game, physics);
-    }
-
     // Update info text
     switch (game.state().game_state) {
-        .ready => {
+        .ready => {            
             try utils.updateText(text, game.state().info_text, "Press any key to start", .{});
+            if (game.state().bricks_left != 0) {
+                var q_bricks = try entities.query(.{
+                    .ids = mach.Entities.Mod.read(.id),
+                    .is_hittable = Mod.read(.is_hittable),
+                });
+                while (q_bricks.next()) |bricks| {
+                    for (bricks.ids) |id| {
+                        try entities.remove(id);
+                    }
+                }
+            }
+            try buildLevel(&game.state().spritesheet, game.state().pipeline, entities, sprite, game, physics);
         },
         .playing => {
             try utils.updateText(text, game.state().info_text, " ", .{});
