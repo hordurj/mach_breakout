@@ -8,6 +8,7 @@ const mach = @import("mach");
 
 /// The main application module.
 pub const App = @import("App.zig");
+pub const Physics = @import("Physics.zig");
 
 // The global list of Mach modules registered for use in our application.
 pub const modules = .{
@@ -16,6 +17,7 @@ pub const modules = .{
     mach.gfx.text_modules,
     mach.gfx.sprite_modules,
     App,
+    Physics,
 };
 
 // TODO(important): use standard entrypoint instead
