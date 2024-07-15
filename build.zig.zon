@@ -21,8 +21,8 @@
             //.lazy = true,
         },
         .mach = .{
-            .url = "https://pkg.machengine.org/mach/b72f0e11b6d292c2b60789359a61f7ee6d7dc371.tar.gz",
-            .hash = "122015e1dac4afaf275f7f2adde3814e6a27f5799cbef96bb487ee305f7e33f4dca3",
+            .url = "https://github.com/hordurj/mach/archive/refs/heads/win32.tar.gz",
+            .hash = "1220b58e94805e78932c2cfe604c2436bd810e2539ddc60f17b9aa504a6f41f9aa9b",
         },
     },
 

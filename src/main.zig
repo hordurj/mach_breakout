@@ -2,7 +2,6 @@
 //!zig-autodoc-section: Modules
 //!zig-autodoc-guide: docs/app.md
 //! 
-
 const std = @import("std");
 const mach = @import("mach");
 
@@ -20,11 +19,12 @@ pub const modules = .{
     Physics,
 };
 
-// TODO(important): use standard entrypoint instead
 pub fn main() !void {
-    // Initialize mach.Core
-    try mach.core.initModule();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    // Main loop
-    while (try mach.core.tick()) {}
+    var app = try mach.App.init(allocator, .app);
+    defer app.deinit(allocator);
+    try app.run(.{ .allocator = allocator, .power_preference = .high_performance });
 }

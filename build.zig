@@ -1,17 +1,4 @@
 const std = @import("std");
-const mach = @import("mach");
-
-pub const Platform = enum {
-    glfw,
-    x11,
-    wayland,
-    web,
-
-    pub fn fromTarget(target: std.Target) Platform {
-        if (target.cpu.arch == .wasm32) return .web;
-        return .glfw;
-    }
-};
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -37,7 +24,6 @@ pub fn build(b: *std.Build) !void {
 
     // Add Mach dependency
     exe.root_module.addImport("mach", mach_dep.module("mach"));
-    @import("mach").link(mach_dep.builder, exe);
 
     // Add zigimg dependency
     exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));

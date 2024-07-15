@@ -77,7 +77,7 @@ pub const systems = .{
     .init = .{ .handler = init },
     .deinit = .{ .handler = deinit },
     .after_init = .{ .handler = afterInit },
-    .tick = .{ .handler = tick },
+    .update = .{ .handler = tick },
 
     .inputs = .{ .handler = tick_inputs },
     .game_logic = .{ .handler = tick_game_logic },
@@ -200,34 +200,29 @@ fn buildLevel(
 }
 
 fn deinit(
-    core: *mach.Core.Mod,
     sprite_pipeline: *SpritePipeline.Mod,
+    text_pipeline: *gfx.TextPipeline.Mod,
     audio: *mach.Audio.Mod,    
     game: *Mod,
 ) !void {
     sprite_pipeline.schedule(.deinit);
+    text_pipeline.schedule(.deinit);
     audio.schedule(.deinit);
-    core.schedule(.deinit);
-
     game.state().spritesheet.deinit();
 }
 fn init(
     entities: *mach.Entities.Mod,
-    core: *mach.Core.Mod,
     sprite_pipeline: *SpritePipeline.Mod,
     text: *gfx.Text.Mod,
     text_pipeline: *gfx.TextPipeline.Mod,
     audio: *mach.Audio.Mod,    
     game: *Mod,
 ) !void {
-    try core.set(core.state().main_window, .fullscreen, true);
-
-    core.schedule(.init);
+//    try core.set(core.state().main_window, .fullscreen, true);
     sprite_pipeline.schedule(.init);    
     text.schedule(.init);
     text_pipeline.schedule(.init);
     audio.schedule(.init);
-
     {
         const file = try std.fs.cwd().openFile(
             "assets/background_music.opus", 
@@ -433,11 +428,10 @@ fn afterInit(
     }
 
     audio.state().on_state_change = game.system(.audio_state_change);
-    core.schedule(.start);    
 }
 
 fn tick_inputs(game: *Mod, physics: *Physics.Mod, core: *mach.Core.Mod) !void {
-    var iter = mach.core.pollEvents();
+    var iter = core.state().pollEvents();
     var velocity = physics.get(game.state().player, .velocity).?;
     const speed = game.state().paddle_speed;
 
@@ -529,7 +523,8 @@ fn tick_render(game: *Mod,
 
     // Grab the back buffer of the swapchain
     // TODO(Core)
-    const back_buffer_view = mach.core.swap_chain.getCurrentTextureView().?;
+
+    const back_buffer_view = core.state().swap_chain.getCurrentTextureView().?;
     defer back_buffer_view.release();
 
     // Begin render pass
@@ -576,7 +571,6 @@ fn endFrame(game: *Mod, core: *mach.Core.Mod) !void {
     game.state().frame_encoder.release();
     game.state().frame_render_pass.release();
 
-    core.schedule(.update);
     core.schedule(.present_frame);
 }
 
@@ -703,10 +697,15 @@ fn tick_game_logic(game: *Mod,
     }    
 }
 
-fn tick(
+fn tick(    
     game: *Mod,
     physics: *Physics.Mod,
+    core: *mach.Core.Mod,
 ) !void {
+    if (core.state().should_close) {
+        return;
+    }
+
     const delta_time = game.state().timer.lap();    
     game.state().time += delta_time;
 
